@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>underkover</title>
+<meta name="description" content="underkover — a placeholder, in transit." />
+<style>
+  :root {
+    /* black base, phosphor green + ultraviolet purple marks */
+    --bg:     #07070a;
+    --bg-2:   #0d0c12;
+    --fg:     #c8ffd6;       /* default text on dark */
+    --green:  #6cf3a3;       /* phosphor */
+    --green-2:#39d97a;
+    --purple: #a06bff;       /* ultraviolet */
+    --purple-2:#7a3df0;
+    --redact: #050507;
+    /* legacy aliases (still used in code) — remap to new palette */
+    --ink:    #07070a;       /* was deep ink — now near-black bg */
+    --cream:  #07070a;       /* trail fade target — fades toward bg */
+    --warm:   #a06bff;       /* accent fleck — now purple */
+    --serif:  "Times New Roman", "Times", "Hoefler Text", Georgia, serif;
+    --mono:   ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--serif);
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: none;
+  }
+
+  /* Atmospheric vignette — purple top-left, green bottom-right glow */
+  .paper {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(80% 70% at 18% 12%, rgba(160,107,255,0.18), transparent 60%),
+      radial-gradient(70% 60% at 85% 92%, rgba(108,243,163,0.12), transparent 65%),
+      radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+  .grain {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.5;
+    mix-blend-mode: screen;
+    background-image: var(--noise);
+    background-size: 220px 220px;
+  }
+
+  canvas#field {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: block;
+    width: 100%; height: 100%;
+  }
+
+  /* Wordmark — barely there, breathes */
+  .wordmark {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    user-select: none;
+  }
+  .wordmark h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-style: italic;
+    font-size: clamp(54px, 14vw, 220px);
+    letter-spacing: -0.04em;
+    color: var(--green);
+    mix-blend-mode: screen;
+    opacity: 0.95;
+    text-shadow:
+      0 0 18px rgba(108,243,163,0.35),
+      0 0 48px rgba(160,107,255,0.25),
+      0 0 2px rgba(108,243,163,0.6);
+    transition: letter-spacing 1.2s cubic-bezier(.2,.8,.2,1), opacity 800ms ease;
+    will-change: transform, letter-spacing;
+    white-space: nowrap;
+  }
+  .wordmark h1 .ch {
+    display: inline-block;
+    transform-origin: 50% 60%;
+    will-change: transform, opacity, filter;
+  }
+  /* The K is a keyhole on long hover */
+  .wordmark h1 .k-wrap {
+    position: relative;
+    display: inline-block;
+  }
+  .wordmark h1 .k-wrap .keyhole {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 700ms ease;
+  }
+  .wordmark.keyhole-on h1 .k-wrap .keyhole { opacity: 1; }
+  .wordmark.keyhole-on h1 .k-wrap .k-letter { opacity: 0; }
+
+  /* HUD: fixed monospace tickers */
+  .hud {
+    position: fixed;
+    z-index: 4;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    opacity: 0.78;
+    pointer-events: none;
+    text-transform: uppercase;
+    text-shadow: 0 0 6px rgba(108,243,163,0.45);
+  }
+  .hud.tr { color: var(--purple); text-shadow: 0 0 6px rgba(160,107,255,0.5); }
+  .hud.tl { top: 18px; left: 20px; }
+  .hud.tr { top: 18px; right: 20px; text-align: right; }
+  .hud.bl { bottom: 18px; left: 20px; }
+  .hud.br { bottom: 18px; right: 20px; text-align: right; }
+  .hud .row { display: block; line-height: 1.55; }
+  .hud .dot {
+    display: inline-block; width: 6px; height: 6px;
+    background: var(--green); border-radius: 50%;
+    margin-right: 6px; vertical-align: 1px;
+    box-shadow: 0 0 8px rgba(108,243,163,0.9);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%     { opacity: 0.25; transform: scale(0.7); }
+  }
+
+  /* Coordinates appear after idle */
+  .coords {
+    position: fixed;
+    z-index: 4;
+    bottom: 50%;
+    left: 24px;
+    transform: translateY(50%);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--purple);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 1.2s ease;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    text-shadow: 0 0 6px rgba(160,107,255,0.6);
+  }
+  body.idle .coords { opacity: 0.7; }
+
+  /* Custom cursor (crosshair ink dot) */
+  .cursor {
+    position: fixed;
+    z-index: 9;
+    top: 0; left: 0;
+    pointer-events: none;
+    width: 28px; height: 28px;
+    margin-left: -14px; margin-top: -14px;
+    mix-blend-mode: screen;
+    transform: translate3d(-100px,-100px,0);
+    transition: width 200ms ease, height 200ms ease;
+  }
+  .cursor::before, .cursor::after {
+    content: ""; position: absolute; background: var(--green);
+    box-shadow: 0 0 6px rgba(108,243,163,0.8);
+  }
+  .cursor::before { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); }
+  .cursor::after  { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+  .cursor .ring {
+    position: absolute; inset: 6px;
+    border: 1px solid var(--purple);
+    border-radius: 50%;
+    opacity: 0.9;
+    box-shadow: 0 0 10px rgba(160,107,255,0.7);
+  }
+  body.touch .cursor { display: none; }
+  body.touch { cursor: auto; }
+
+  /* Redaction layer — one element per click */
+  .redactions {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+  }
+  .redaction {
+    position: absolute;
+    background: var(--purple-2);
+    transform-origin: 0 50%;
+    will-change: transform, opacity;
+    box-shadow: 0 0 24px rgba(160,107,255,0.55), inset 0 0 0 1px rgba(108,243,163,0.35);
+  }
+  .redaction .secret {
+    position: absolute;
+    inset: 0;
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    opacity: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-shadow: 0 0 6px rgba(108,243,163,0.8);
+  }
+
+  /* The thin breathing rule */
+  .rule {
+    position: fixed;
+    z-index: 3;
+    left: 50%;
+    top: calc(50% + clamp(60px, 9vw, 140px));
+    width: clamp(180px, 22vw, 360px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--green) 30%, var(--purple) 70%, transparent);
+    transform: translate(-50%, 0) scaleX(0.001);
+    transform-origin: 50% 50%;
+    opacity: 0.7;
+    box-shadow: 0 0 8px rgba(108,243,163,0.4);
+    animation: ruleBreathe 6.5s ease-in-out 0.4s infinite;
+  }
+  @keyframes ruleBreathe {
+    0%,100% { transform: translate(-50%, 0) scaleX(0.2); opacity: 0.25; }
+    50%     { transform: translate(-50%, 0) scaleX(1.0); opacity: 0.7; }
+  }
+
+  /* Subtle subtitle under wordmark */
+  .sub {
+    position: fixed;
+    z-index: 3;
+    left: 50%;
+    top: calc(50% + clamp(80px, 12vw, 180px));
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--purple);
+    opacity: 0.75;
+    pointer-events: none;
+    white-space: nowrap;
+    text-shadow: 0 0 6px rgba(160,107,255,0.55);
+  }
+  .sub .glitch { display: inline-block; min-width: 12ch; }
+
+  /* Click hint */
+  .hint {
+    position: fixed;
+    z-index: 4;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    pointer-events: none;
+    color: var(--green);
+    animation: hintFade 4s ease-in-out infinite;
+    text-shadow: 0 0 6px rgba(108,243,163,0.5);
+  }
+  @keyframes hintFade {
+    0%,100% { opacity: 0.2; }
+    50%     { opacity: 0.6; }
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .rule, .hint, .hud .dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <!-- Order: paper bg → canvas field → redactions → wordmark/sub/rule → grain → cursor -->
+  <div class="paper" aria-hidden="true"></div>
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="redactions" id="redactions" aria-hidden="true"></div>
+
+  <div class="wordmark" id="wordmark">
+    <h1 id="wm" aria-label="underkover">
+      <!-- letters injected by JS so we can per-letter animate and keyhole the K -->
+    </h1>
+  </div>
+  <div class="rule" aria-hidden="true"></div>
+  <div class="sub" id="sub"><span class="glitch" id="subText">mysterious placeholder</span></div>
+
+  <!-- HUD -->
+  <div class="hud tl" aria-hidden="true">
+    <span class="row"><span class="dot"></span>UNDERKOVER / FIELD STATION</span>
+    <span class="row" id="hudTime">00:00:00 UTC</span>
+  </div>
+  <div class="hud tr" aria-hidden="true">
+    <span class="row">TRANSMISSION 0x<span id="hudHash">0000</span></span>
+    <span class="row" id="hudStatus">OBSERVING</span>
+  </div>
+  <div class="hud bl" aria-hidden="true">
+    <span class="row" id="hudPos">x: 0000 &nbsp; y: 0000</span>
+    <span class="row" id="hudVel">v: 0.00</span>
+  </div>
+  <div class="hud br" aria-hidden="true">
+    <span class="row">EST. 2001 — IN TRANSIT</span>
+    <span class="row">underkover</span>
+  </div>
+
+  <div class="coords" aria-hidden="true">N 51&deg;30&prime;26&Prime; &nbsp;·&nbsp; W 000&deg;07&prime;39&Prime;</div>
+  <div class="hint" id="hint">click to redact · move to disturb</div>
+
+  <div class="cursor" id="cursor" aria-hidden="true"><div class="ring"></div></div>
+  <div class="grain" aria-hidden="true"></div>
+
+<script>
+/* ============================================================
+   underkover — generative ink field
+   100% self-contained. No external assets.
+   ============================================================ */
+
+(() => {
+  // Palette: black bg, phosphor green, ultraviolet purple
+  const bg     = '#07070a';
+  const green  = '#6cf3a3';
+  const green2 = '#39d97a';
+  const purple = '#a06bff';
+  const purple2= '#7a3df0';
+  // legacy aliases used downstream
+  const ink   = green;     // primary mark color
+  const cream = bg;        // trail-fade target (now black)
+  const warm  = purple;    // accent fleck
+
+  // ---------- Procedural noise SVG (subtle phosphor static) — inline data URL ----------
+  const noiseSvg = `
+    <svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'>
+      <filter id='n'>
+        <feTurbulence type='fractalNoise' baseFrequency='1.8' numOctaves='2' stitchTiles='stitch'/>
+        <feColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.95 0 0 0 0 0.64 0 0 0 0.45 0'/>
+      </filter>
+      <rect width='100%' height='100%' filter='url(#n)' opacity='0.5'/>
+    </svg>`;
+  document.documentElement.style.setProperty(
+    '--noise',
+    `url("data:image/svg+xml;utf8,${encodeURIComponent(noiseSvg)}")`
+  );
+
+  // ---------- Build wordmark letters ----------
+  const wm = document.getElementById('wm');
+  const word = 'underkover';
+  word.split('').forEach((ch, i) => {
+    if (ch === 'k') {
+      const wrap = document.createElement('span');
+      wrap.className = 'ch k-wrap';
+      wrap.dataset.i = i;
+      const letter = document.createElement('span');
+      letter.className = 'k-letter';
+      letter.textContent = 'k';
+      wrap.appendChild(letter);
+      // Keyhole svg overlay
+      const kh = document.createElement('span');
+      kh.className = 'keyhole';
+      kh.innerHTML = `
+        <svg viewBox="0 0 100 140" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%">
+          <g fill="${ink}">
+            <circle cx="50" cy="58" r="20"/>
+            <path d="M40 70 L60 70 L66 122 L34 122 Z"/>
+          </g>
+        </svg>`;
+      wrap.appendChild(kh);
+      wm.appendChild(wrap);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'ch';
+      span.textContent = ch;
+      span.dataset.i = i;
+      wm.appendChild(span);
+    }
+  });
+
+  // ---------- Canvas setup ----------
+  const cnv = document.getElementById('field');
+  const ctx = cnv.getContext('2d', { alpha: true });
+  let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cnv.width  = Math.floor(W * DPR);
+    cnv.height = Math.floor(H * DPR);
+    cnv.style.width  = W + 'px';
+    cnv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // Repaint base
+    ctx.fillStyle = cream;
+    ctx.fillRect(0, 0, W, H);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- Pointer ----------
+  const pointer = {
+    x: W / 2, y: H / 2,
+    px: W / 2, py: H / 2,
+    vx: 0, vy: 0, speed: 0,
+    active: false,
+    lastMove: performance.now(),
+  };
+
+  function setPointer(x, y) {
+    pointer.x = x; pointer.y = y;
+    pointer.active = true;
+    pointer.lastMove = performance.now();
+  }
+
+  window.addEventListener('mousemove', (e) => setPointer(e.clientX, e.clientY));
+  window.addEventListener('mouseleave', () => { pointer.active = false; });
+  window.addEventListener('touchstart', (e) => {
+    document.body.classList.add('touch');
+    if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches[0]) setPointer(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+
+  // ---------- Custom cursor ----------
+  const cursor = document.getElementById('cursor');
+  function tickCursor() {
+    cursor.style.transform = `translate3d(${pointer.x}px, ${pointer.y}px, 0)`;
+    requestAnimationFrame(tickCursor);
+  }
+  tickCursor();
+
+  // ---------- Flow field (curl-noise approximation) ----------
+  // Cheap value-noise table
+  const NOISE_N = 256;
+  const noiseTable = new Float32Array(NOISE_N * NOISE_N);
+  for (let i = 0; i < noiseTable.length; i++) noiseTable[i] = Math.random();
+  function vnoise(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi, yf = y - yi;
+    const idx = (a, b) => noiseTable[((a & 255) + ((b & 255) << 8)) & (NOISE_N * NOISE_N - 1)];
+    const a = idx(xi, yi), b = idx(xi + 1, yi);
+    const c = idx(xi, yi + 1), d = idx(xi + 1, yi + 1);
+    const u = xf * xf * (3 - 2 * xf);
+    const v = yf * yf * (3 - 2 * yf);
+    return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+  }
+  // Field angle from layered noise + slow drift
+  function fieldAngle(x, y, t) {
+    const s = 0.0028;
+    const n = vnoise(x * s + t * 0.04, y * s - t * 0.03)
+            + 0.5 * vnoise(x * s * 2.1 - t * 0.02, y * s * 2.1 + t * 0.05);
+    return n * Math.PI * 2.4;
+  }
+
+  // ---------- Particles ----------
+  const isMobile = matchMedia('(max-width: 760px)').matches;
+  const PARTICLE_COUNT = isMobile ? 320 : 720;
+  const particles = [];
+  function spawnParticle(p) {
+    p = p || {};
+    p.x = Math.random() * W;
+    p.y = Math.random() * H;
+    p.life = 0;
+    p.maxLife = 140 + Math.random() * 260;
+    p.w = 0.7 + Math.random() * 1.5;
+    p.alpha = 0.35 + Math.random() * 0.45;
+    p.speed = 0.6 + Math.random() * 0.9;
+    p.hueShift = Math.random();
+    return p;
+  }
+  for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(spawnParticle({}));
+
+  // ---------- Drifting glyphs (occasional ink marks) ----------
+  const glyphChars = ['·','—','/','\\','|','+','×','◯','◇','◻','¶','§','†','‡','‹','›','«','»','#','*'];
+  const glyphs = [];
+  function spawnGlyph() {
+    glyphs.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      ch: glyphChars[(Math.random() * glyphChars.length) | 0],
+      life: 0,
+      max: 240 + Math.random() * 360,
+      size: 9 + Math.random() * 18,
+      rot: (Math.random() - 0.5) * 0.6,
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: (Math.random() - 0.5) * 0.15,
+    });
+  }
+  for (let i = 0; i < (isMobile ? 14 : 28); i++) spawnGlyph();
+
+  // ---------- Redactions ----------
+  const redactionsEl = document.getElementById('redactions');
+  const SECRETS = [
+    'this too shall pass',
+    'fortune favors the bold',
+    'the journey of a thousand miles begins with a single step',
+    'where there is a will, there is a way',
+    'still waters run deep',
+    'what you seek is seeking you',
+    'the best time to plant a tree was twenty years ago',
+    'the second best time is now',
+    'fall seven times, stand up eight',
+    'a smooth sea never made a skilled sailor',
+    'after the rain, the rainbow',
+    'every cloud has a silver lining',
+    'no rain, no flowers',
+    'the bamboo that bends is stronger than the oak that resists',
+    'slow and steady wins the race',
+    'be the change you wish to see in the world',
+    'patience is a virtue',
+    'rome was not built in a day',
+    'a journey is best measured in friends, not miles',
+    'the early bird catches the worm',
+  ];
+  let secretIdx = 0;
+
+  function spawnRedaction(x, y) {
+    const el = document.createElement('div');
+    el.className = 'redaction';
+    const w = 180 + Math.random() * 260;
+    const h = 18 + Math.random() * 14;
+    const rot = (Math.random() - 0.5) * 0.18;
+    el.style.left = (x - w * 0.1) + 'px';
+    el.style.top  = (y - h / 2) + 'px';
+    el.style.width  = w + 'px';
+    el.style.height = h + 'px';
+    el.style.transform = `rotate(${rot}rad) scaleX(0)`;
+    el.style.opacity = '1';
+    el.style.transition = 'transform 380ms cubic-bezier(.2,.9,.25,1)';
+
+    const secret = document.createElement('div');
+    secret.className = 'secret';
+    secret.textContent = SECRETS[(Math.random() * SECRETS.length) | 0];
+    el.appendChild(secret);
+
+    redactionsEl.appendChild(el);
+
+    // animate in
+    requestAnimationFrame(() => {
+      el.style.transform = `rotate(${rot}rad) scaleX(1)`;
+    });
+
+    // reveal secret
+    setTimeout(() => {
+      secret.style.transition = 'opacity 600ms ease';
+      secret.style.opacity = '1';
+    }, 420);
+
+    // dissolve after a beat
+    setTimeout(() => {
+      el.style.transition = 'opacity 1500ms ease, transform 1500ms ease';
+      el.style.opacity = '0';
+      el.style.transform = `rotate(${rot}rad) scaleX(1) translateY(-8px)`;
+      setTimeout(() => el.remove(), 1600);
+    }, 2200 + Math.random() * 800);
+
+    // splash particles around the click
+    for (let i = 0; i < 80; i++) {
+      const p = particles[(Math.random() * particles.length) | 0];
+      p.x = x + (Math.random() - 0.5) * 60;
+      p.y = y + (Math.random() - 0.5) * 60;
+      p.life = 0;
+      p.alpha = 0.25 + Math.random() * 0.25;
+      p.speed = 1.2 + Math.random() * 1.6;
+    }
+
+    // ink ring
+    rings.push({ x, y, r: 4, life: 0, max: 70 });
+  }
+  const rings = [];
+
+  window.addEventListener('click', (e) => {
+    if (e.target.closest('a,button')) return;
+    spawnRedaction(e.clientX, e.clientY);
+  });
+  window.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    if (!t) return;
+    spawnRedaction(t.clientX, t.clientY);
+  }, { passive: true });
+
+  // ---------- Wordmark per-letter warp ----------
+  const chars = [...document.querySelectorAll('#wm .ch')];
+  const wordmarkEl = document.getElementById('wordmark');
+
+  function updateWordmark(t) {
+    // distance from pointer in screen px
+    chars.forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dx = pointer.x - cx;
+      const dy = pointer.y - cy;
+      const d = Math.hypot(dx, dy);
+      const k = Math.max(0, 1 - d / 240);
+      const ang = Math.atan2(dy, dx);
+      const tx = -Math.cos(ang) * k * 18;
+      const ty = -Math.sin(ang) * k * 18 + Math.sin(t * 0.0008 + i * 0.6) * (1.5 + k * 6);
+      const sk = Math.sin(t * 0.0006 + i) * 0.5 + k * 1.2;
+      const sc = 1 + k * 0.06 + Math.sin(t * 0.001 + i * 0.7) * 0.012;
+      const blur = k * 1.4;
+      c.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) skewX(${sk.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
+      c.style.filter = blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : '';
+    });
+
+    // letter-spacing breathes; tightens when idle, opens when moving
+    const idle = (t - pointer.lastMove) > 1200;
+    wm.style.letterSpacing = idle ? '-0.05em' : '-0.025em';
+  }
+
+  // ---------- Subtitle glitch ----------
+  const subText = document.getElementById('subText');
+  const baseSub = 'mysterious placeholder';
+  let subTimer = 0;
+  function glitchSub(t) {
+    subTimer += 16;
+    if (subTimer < 90) return;
+    subTimer = 0;
+    if (Math.random() < 0.85) { subText.textContent = baseSub; return; }
+    const arr = baseSub.split('');
+    const n = 1 + ((Math.random() * 3) | 0);
+    for (let i = 0; i < n; i++) {
+      const idx = (Math.random() * arr.length) | 0;
+      if (arr[idx] === ' ') continue;
+      arr[idx] = '/—\\|·×+§'[(Math.random() * 8) | 0];
+    }
+    subText.textContent = arr.join('');
+  }
+
+  // ---------- HUD ----------
+  const hudPos = document.getElementById('hudPos');
+  const hudVel = document.getElementById('hudVel');
+  const hudHash = document.getElementById('hudHash');
+  const hudTime = document.getElementById('hudTime');
+  const hudStatus = document.getElementById('hudStatus');
+  let hashRoll = 0;
+  function updateHUD(t) {
+    hudPos.textContent = `x: ${String((pointer.x | 0)).padStart(4,'0')}  y: ${String((pointer.y | 0)).padStart(4,'0')}`;
+    hudVel.textContent = `v: ${pointer.speed.toFixed(2)}`;
+    hashRoll += 1 + pointer.speed * 2;
+    hudHash.textContent = ((hashRoll | 0) % 65536).toString(16).padStart(4, '0').toUpperCase();
+    const now = new Date();
+    hudTime.textContent =
+      String(now.getUTCHours()).padStart(2, '0') + ':' +
+      String(now.getUTCMinutes()).padStart(2, '0') + ':' +
+      String(now.getUTCSeconds()).padStart(2, '0') + ' UTC';
+    hudStatus.textContent = pointer.speed > 1.6 ? 'DISTURBED' : ((t - pointer.lastMove) > 1500 ? 'LISTENING' : 'OBSERVING');
+  }
+
+  // ---------- Idle coordinates ----------
+  function checkIdle(t) {
+    const idle = (t - pointer.lastMove) > 9000;
+    document.body.classList.toggle('idle', idle);
+  }
+
+  // ---------- Keyhole (long hover on K) ----------
+  const kWrap = document.querySelector('#wm .k-wrap');
+  let kHoverStart = 0;
+  function checkKeyhole(t) {
+    if (!kWrap) return;
+    const r = kWrap.getBoundingClientRect();
+    const inside = pointer.x >= r.left - 8 && pointer.x <= r.right + 8 &&
+                   pointer.y >= r.top - 8 && pointer.y <= r.bottom + 8;
+    if (inside) {
+      if (!kHoverStart) kHoverStart = t;
+      if (t - kHoverStart > 1100) wordmarkEl.classList.add('keyhole-on');
+    } else {
+      kHoverStart = 0;
+      wordmarkEl.classList.remove('keyhole-on');
+    }
+  }
+
+  // ---------- Render loop ----------
+  let last = performance.now();
+  let t0 = last;
+  function frame(now) {
+    const dt = Math.min(48, now - last);
+    last = now;
+    const t = (now - t0) * 0.001; // seconds
+
+    // velocity
+    pointer.vx = pointer.x - pointer.px;
+    pointer.vy = pointer.y - pointer.py;
+    pointer.speed = Math.hypot(pointer.vx, pointer.vy) * 0.18 + pointer.speed * 0.82;
+    pointer.px = pointer.x;
+    pointer.py = pointer.y;
+
+    // fade prev frame toward bg (long trails on black)
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(7,7,10,0.014)';
+    ctx.fillRect(0, 0, W, H);
+
+    // particles — additive (phosphor-on-black)
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const ang = fieldAngle(p.x, p.y, t);
+      // Pointer influence: vortex
+      const dx = p.x - pointer.x;
+      const dy = p.y - pointer.y;
+      const dd = Math.hypot(dx, dy);
+      const infl = Math.max(0, 1 - dd / 220);
+      const swirl = ang + infl * (Math.atan2(dy, dx) + Math.PI / 2 + pointer.speed * 0.4) * 0.9;
+      const sp = p.speed + infl * (1.2 + pointer.speed * 0.6);
+      const nx = p.x + Math.cos(swirl) * sp;
+      const ny = p.y + Math.sin(swirl) * sp;
+
+      // Color: ink, occasional warm fleck
+      const alpha = p.alpha * (1 - p.life / p.maxLife);
+      ctx.strokeStyle = (p.hueShift > 0.93 ? warm : ink);
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = p.w * (1 + infl * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+
+      p.x = nx; p.y = ny;
+      p.life += dt * 0.06;
+
+      if (p.life > p.maxLife || p.x < -10 || p.x > W + 10 || p.y < -10 || p.y > H + 10) {
+        spawnParticle(p);
+        // bias respawn near pointer occasionally for liveliness
+        if (Math.random() < 0.18 && pointer.active) {
+          p.x = pointer.x + (Math.random() - 0.5) * 200;
+          p.y = pointer.y + (Math.random() - 0.5) * 200;
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    // glyphs (drift)
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = glyphs.length - 1; i >= 0; i--) {
+      const g = glyphs[i];
+      const a = Math.sin((g.life / g.max) * Math.PI) * 0.55;
+      g.life += dt * 0.06;
+      g.x += g.vx;
+      g.y += g.vy;
+      // gentle pull toward field
+      const ang = fieldAngle(g.x, g.y, t);
+      g.x += Math.cos(ang) * 0.25;
+      g.y += Math.sin(ang) * 0.25;
+      ctx.globalAlpha = Math.max(0, a);
+      ctx.font = `${g.size}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}`;
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.rotate(g.rot + Math.sin(t * 0.4 + i) * 0.08);
+      ctx.fillText(g.ch, 0, 0);
+      ctx.restore();
+      if (g.life > g.max) {
+        glyphs.splice(i, 1);
+        spawnGlyph();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // ink rings from clicks
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i];
+      r.life++;
+      r.r += 2.6;
+      const a = Math.max(0, 1 - r.life / r.max);
+      ctx.globalAlpha = a * 0.5;
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      ctx.stroke();
+      if (r.life > r.max) rings.splice(i, 1);
+    }
+    ctx.globalAlpha = 1;
+
+    // pointer halo (purple bloom over the field)
+    if (pointer.active) {
+      const grad = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 240);
+      grad.addColorStop(0, 'rgba(160,107,255,0.10)');
+      grad.addColorStop(1, 'rgba(160,107,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    updateWordmark(now);
+    updateHUD(now);
+    glitchSub(now);
+    checkIdle(now);
+    checkKeyhole(now);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------- Initial gentle pointer drift before user moves ----------
+  let auto = true;
+  function autoDrift(t) {
+    if (auto) {
+      const ang = t * 0.0004;
+      pointer.x = W / 2 + Math.cos(ang * 1.7) * W * 0.28;
+      pointer.y = H / 2 + Math.sin(ang) * H * 0.28;
+    }
+    requestAnimationFrame(autoDrift);
+  }
+  autoDrift(performance.now());
+  ['mousemove','touchstart','touchmove'].forEach(ev =>
+    window.addEventListener(ev, () => { auto = false; }, { once: true, passive: true })
+  );
+
+})();
+</script>
+</body>
+</html>
